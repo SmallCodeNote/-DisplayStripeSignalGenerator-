@@ -73,15 +73,18 @@ void InitializeComponent()
     M5.setPrimaryDisplayType(m5gfx::board_M5StackCore2);
 }
 
-void Display_Module_Pattern_draw(int stripeCycle)
+void Display_Module_Pattern_draw(int stripeCycle, int stripeOffset)
 {
     Display_Module_Canvas.fillScreen(BLACK);
     int iMax = Display_Module_Canvas.width();
     int jMax = Display_Module_Canvas.height();
 
-    for (int i = 0; i < iMax; i += stripeCycle)
+    if (stripeCycle > 0)
     {
-        Display_Module_Canvas.fillRect(i, 0, stripeCycle / 2, jMax, WHITE);
+        for (int i = -stripeOffset; i < iMax; i += stripeCycle)
+        {
+            Display_Module_Canvas.fillRect(i, 0, stripeCycle / 2, jMax, WHITE);
+        }
     }
 
     Display_Module_Canvas.pushSprite(0, 0);
@@ -97,7 +100,24 @@ struct DATA_SET
     int cycleValueStored;
 };
 DATA_SET data;
-int cycleValue_LastData;
+
+/// @brief Display Module pattern cycleValue
+int cycleValue = 0;
+int cycleValue_LastData = -1;
+
+/// @brief Display Module pattern cycleOffset
+int cycleOffset = 0;
+int cycleOffset_LastData;
+
+hw_timer_t *timer = NULL;
+
+void onTimer()
+{
+    cycleOffset++;
+
+    if (cycleOffset >= cycleValue)
+        cycleOffset = 0;
+}
 
 void setup()
 {
@@ -106,11 +126,15 @@ void setup()
 
     if (data.cycleValueStored < 2)
     {
-        cycleValue_LastData = 20;
+        cycleValue = 20;
+        cycleValue_LastData = cycleValue;
+        cycleOffset_LastData = 0;
     }
     else
     {
-        cycleValue_LastData = data.cycleValueStored;
+        cycleValue = data.cycleValueStored;
+        cycleValue_LastData = cycleValue;
+        cycleOffset_LastData = 0;
     }
     Serial.println("\nEEPROM " + String(cycleValue_LastData));
 
@@ -128,15 +152,21 @@ void setup()
     Serial.println("\nInitializeComponent");
 
     InitializeComponent();
-    Display_Module_Pattern_draw(cycleValue_LastData);
+    Display_Module_Pattern_draw(cycleValue, cycleOffset);
 
-    Form_Top = form_Top(Display_Main_Canvas, cycleValue_LastData);
+    Form_Top = form_Top(Display_Main_Canvas, cycleValue);
     Form_ShutdownMessage = form_ShutdownMessage(Display_Main_Canvas, 0);
     Form_SaveMessage = form_SaveMessage(Display_Main_Canvas, 0);
     FormView = &Form_Top;
 
     FormView->formEnable = true;
     FormView->draw();
+
+    // Create timer
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+    timerAlarmWrite(timer, 1 * 1000000, true);
+    timerAlarmEnable(timer);
 }
 
 static m5::touch_state_t prev_state;
@@ -145,7 +175,6 @@ static constexpr const char *state_name[16] =
 
 int prev_x = 0;
 int prev_y = 0;
-int cycleValue = 0;
 
 void loop(void)
 {
@@ -198,7 +227,10 @@ void loop(void)
                     if (cycleValue_LastData != cycleValue)
                     {
                         cycleValue_LastData = cycleValue;
-                        Display_Module_Pattern_draw(cycleValue);
+
+                        cycleOffset = 0;
+                        cycleOffset_LastData = cycleOffset;
+                        Display_Module_Pattern_draw(cycleValue, cycleOffset);
                     }
 
                     touchIndex = 0;
@@ -248,5 +280,12 @@ void loop(void)
             }
         }
     }
+
+    if (cycleOffset_LastData != cycleOffset || cycleOffset_LastData < 0)
+    {
+        cycleOffset_LastData = cycleOffset;
+        Display_Module_Pattern_draw(cycleValue, cycleOffset);
+    }
+
     delay(10);
 }
